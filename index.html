@@ -1,0 +1,1166 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tabungan Keluarga Online (Realtime Sync)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
+        
+        body {
+            font-family: 'Plus Jakarta Sans', sans-serif;
+            background-color: #0f172a; /* Dark sleek slate theme */
+            color: #f8fafc;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        /* Hide scrollbars for clean mobile app feel */
+        ::-webkit-scrollbar {
+            width: 0px;
+            background: transparent;
+        }
+
+        .app-container {
+            max-width: 480px;
+            margin: 0 auto;
+            background-color: #1e293b;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            box-shadow: 0 0 30px rgba(0, 0, 0, 0.5);
+            position: relative;
+        }
+
+        .tab-content {
+            display: none;
+            flex: 1;
+            overflow-y: auto;
+        }
+
+        .tab-content.active {
+            display: block;
+            animation: fadeIn 0.25s ease-out;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(6px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .nav-item {
+            color: #64748b;
+            transition: all 0.2s ease;
+        }
+
+        .nav-item.active {
+            color: #fb923c; /* orange-400 */
+        }
+        
+        .nav-item.active i {
+            transform: translateY(-2px) scale(1.1);
+        }
+
+        .glass-card {
+            background: rgba(30, 41, 59, 0.7);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+        }
+        
+        #toast {
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.3s ease, transform 0.3s ease;
+            transform: translate(-50%, -20px);
+        }
+        
+        #toast.show {
+            opacity: 1;
+            transform: translate(-50%, 0);
+        }
+    </style>
+</head>
+<body class="antialiased">
+
+    <div class="app-container">
+        
+        <!-- Top App Bar -->
+        <header class="bg-slate-900/90 backdrop-blur-md text-white p-4 sticky top-0 z-30 border-b border-slate-800 flex justify-between items-center">
+            <div>
+                <div class="flex items-center gap-2">
+                    <h1 class="text-base font-extrabold tracking-wide text-transparent bg-clip-text bg-gradient-to-r from-orange-400 to-amber-300">
+                        TABUNGAN KELUARGA
+                    </h1>
+                    <span id="sync-status-badge" class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30 flex items-center gap-1">
+                        <span class="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse"></span> Connecting
+                    </span>
+                </div>
+                <p id="header-member-info" class="text-[11px] text-slate-400 flex items-center gap-1 mt-0.5 truncate max-w-[240px]">
+                    <i class="fa-solid fa-users text-[10px]"></i> <span id="header-member-text">Memuat anggota...</span>
+                </p>
+            </div>
+            
+            <div class="flex items-center gap-2">
+                <button onclick="toggleAdminModal()" id="btn-admin-lock" title="Login Admin" class="w-9 h-9 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 flex items-center justify-center text-slate-400 transition-colors">
+                    <i class="fa-solid fa-lock text-sm"></i>
+                </button>
+                <button onclick="openConfigModal()" title="Pengaturan Firebase & Kode Keluarga" class="w-9 h-9 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 flex items-center justify-center text-orange-400 transition-colors">
+                    <i class="fa-solid fa-gear text-sm"></i>
+                </button>
+            </div>
+        </header>
+
+        <!-- Toast Notification -->
+        <div id="toast" class="fixed top-16 left-1/2 px-4 py-2.5 rounded-xl shadow-2xl text-white text-xs z-50 whitespace-nowrap bg-emerald-600 font-semibold flex items-center gap-2 border border-emerald-400/30">
+            <i class="fa-solid fa-circle-check text-sm"></i> <span id="toast-msg">Notifikasi</span>
+        </div>
+
+        <!-- TAB 1: DASHBOARD -->
+        <main id="tab-dashboard" class="tab-content active p-4 pb-32">
+            
+            <!-- Room / App ID Info Banner -->
+            <div class="mb-4 bg-slate-800/60 rounded-xl p-3 border border-slate-700/60 flex items-center justify-between">
+                <div class="flex items-center gap-2.5 overflow-hidden">
+                    <div class="w-8 h-8 rounded-lg bg-sky-500/10 text-sky-400 flex items-center justify-center text-sm shrink-0">
+                        <i class="fa-solid fa-house-signal"></i>
+                    </div>
+                    <div class="truncate">
+                        <p class="text-[10px] text-slate-400 uppercase font-semibold">Kode Sync Keluarga</p>
+                        <p id="display-family-code" class="text-xs font-bold text-sky-300 truncate">default-family</p>
+                    </div>
+                </div>
+                <button onclick="copyFamilyCode()" class="shrink-0 px-2.5 py-1 bg-slate-700 hover:bg-slate-600 text-slate-200 rounded-lg text-xs font-medium flex items-center gap-1 transition">
+                    <i class="fa-regular fa-copy"></i> Salin
+                </button>
+            </div>
+
+            <!-- Global Balance Cards -->
+            <div class="bg-gradient-to-br from-orange-600 via-amber-600 to-slate-900 rounded-2xl p-5 text-white shadow-xl mb-5 relative overflow-hidden border border-orange-400/20">
+                <div class="absolute -right-6 -bottom-6 opacity-10 text-9xl pointer-events-none">
+                    <i class="fa-solid fa-vault"></i>
+                </div>
+                
+                <p class="text-xs font-medium text-orange-200 mb-1 flex items-center gap-1.5">
+                    <i class="fa-solid fa-wallet text-orange-300"></i> Total Kas Aktif (Uang Fisik)
+                </p>
+                <h2 id="total-kas" class="text-3xl font-extrabold tracking-tight mb-4 text-white">Rp 0</h2>
+                
+                <div class="grid grid-cols-2 gap-3 border-t border-white/10 pt-3.5">
+                    <div class="bg-black/20 backdrop-blur-sm rounded-xl p-2.5 border border-white/5">
+                        <p class="text-[10px] text-emerald-300 font-medium">Bunga Terkumpul (15%)</p>
+                        <p id="total-bunga" class="text-base font-bold text-emerald-400">Rp 0</p>
+                    </div>
+                    <div class="bg-black/20 backdrop-blur-sm rounded-xl p-2.5 border border-white/5">
+                        <p class="text-[10px] text-amber-300 font-medium">Hutang Aktif Dipinjam</p>
+                        <p id="total-hutang" class="text-base font-bold text-amber-400">Rp 0</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Per Member Stats -->
+            <div class="flex items-center justify-between mb-3">
+                <h3 id="dashboard-members-title" class="text-xs font-bold uppercase tracking-wider text-slate-400">Status Kepala Keluarga</h3>
+                <span class="text-[10px] bg-slate-800 text-slate-400 px-2 py-0.5 rounded-full font-mono">Real-time</span>
+            </div>
+            
+            <div id="member-list" class="space-y-2.5">
+                <!-- Populated dynamically -->
+            </div>
+        </main>
+
+        <!-- TAB 2: TRANSAKSI (INPUT) -->
+        <main id="tab-transaksi" class="tab-content p-4 pb-32">
+            <h2 class="text-lg font-bold mb-4 text-slate-100 flex items-center gap-2">
+                <i class="fa-solid fa-pen-to-square text-orange-400"></i> Input Transaksi Baru
+            </h2>
+            
+            <!-- Locked State Message -->
+            <div id="admin-locked-msg" class="bg-slate-800/80 rounded-2xl p-8 border border-slate-700/80 shadow-lg text-center flex flex-col items-center justify-center">
+                <div class="w-16 h-16 bg-slate-700/50 rounded-full flex items-center justify-center mb-4 text-orange-400/50 border border-slate-600">
+                    <i class="fa-solid fa-lock text-3xl"></i>
+                </div>
+                <h3 class="text-sm font-bold text-slate-200 mb-2">Akses Terkunci</h3>
+                <p class="text-xs text-slate-400 mb-5">Hanya Admin yang dapat menambahkan atau mengubah data transaksi. Silakan login sebagai Admin.</p>
+                <button onclick="toggleAdminModal()" class="px-5 py-2.5 bg-orange-600/20 text-orange-400 hover:bg-orange-600/30 border border-orange-500/30 rounded-xl text-xs font-bold transition-all">
+                    <i class="fa-solid fa-key mr-1.5"></i> Buka Kunci Admin
+                </button>
+            </div>
+
+            <div id="tx-form-container" class="bg-slate-800/80 rounded-2xl p-5 border border-slate-700/80 shadow-lg hidden">
+                <form id="tx-form" onsubmit="handleFormSubmit(event)">
+                    
+                    <!-- Member Selection -->
+                    <div class="mb-4">
+                        <label class="block text-xs font-semibold text-slate-300 mb-1.5">Pilih Kepala Keluarga</label>
+                        <select id="tx-member" class="w-full bg-slate-900 border border-slate-700 text-slate-100 rounded-xl p-3 text-sm focus:ring-2 focus:ring-sky-500 focus:border-sky-500 outline-none" required onchange="updateFormUI()">
+                            <option value="" disabled selected>Pilih Anggota Keluarga...</option>
+                            <!-- Dipopulasikan secara dinamis -->
+                        </select>
+                    </div>
+
+                    <!-- Transaction Type -->
+                    <div class="mb-4">
+                        <label class="block text-xs font-semibold text-slate-300 mb-1.5">Jenis Transaksi</label>
+                        <div class="grid grid-cols-3 gap-2">
+                            <label class="cursor-pointer">
+                                <input type="radio" name="tx-type" value="deposit" class="peer sr-only" checked onchange="updateFormUI()">
+                                <div class="text-center py-2.5 px-1 rounded-xl border border-slate-700 bg-slate-900 text-slate-400 peer-checked:bg-emerald-500/20 peer-checked:border-emerald-500 peer-checked:text-emerald-300 text-xs font-bold transition-all">
+                                    <i class="fa-solid fa-arrow-down-long block mb-1 text-base"></i> Menabung
+                                </div>
+                            </label>
+                            <label class="cursor-pointer">
+                                <input type="radio" name="tx-type" value="loan" class="peer sr-only" onchange="updateFormUI()">
+                                <div class="text-center py-2.5 px-1 rounded-xl border border-slate-700 bg-slate-900 text-slate-400 peer-checked:bg-amber-500/20 peer-checked:border-amber-500 peer-checked:text-amber-300 text-xs font-bold transition-all">
+                                    <i class="fa-solid fa-hand-holding-dollar block mb-1 text-base"></i> Pinjam
+                                </div>
+                            </label>
+                            <label class="cursor-pointer">
+                                <input type="radio" name="tx-type" value="repayment" class="peer sr-only" onchange="updateFormUI()">
+                                <div class="text-center py-2.5 px-1 rounded-xl border border-slate-700 bg-slate-900 text-slate-400 peer-checked:bg-sky-500/20 peer-checked:border-sky-500 peer-checked:text-sky-300 text-xs font-bold transition-all">
+                                    <i class="fa-solid fa-arrow-up-right-dots block mb-1 text-base"></i> Bayar Hutang
+                                </div>
+                            </label>
+                        </div>
+                    </div>
+
+                    <!-- Precision Date & Time Input -->
+                    <div class="mb-4">
+                        <label class="block text-xs font-semibold text-slate-300 mb-1.5">Tanggal & Jam Presisi</label>
+                        <input type="datetime-local" id="tx-datetime" class="w-full bg-slate-900 border border-slate-700 text-slate-100 rounded-xl p-3 text-sm focus:ring-2 focus:ring-sky-500 outline-none" required>
+                    </div>
+
+                    <!-- Dynamic Interest Calculator Info Box -->
+                    <div id="tx-info" class="mb-4 text-xs p-3.5 rounded-xl border hidden transition-all">
+                        <!-- Calculated dynamically -->
+                    </div>
+
+                    <!-- Amount Input -->
+                    <div class="mb-6">
+                        <label class="block text-xs font-semibold text-slate-300 mb-1.5">Nominal Uang (Rp)</label>
+                        <div class="relative">
+                            <div class="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400 font-semibold text-sm">
+                                Rp
+                            </div>
+                            <input type="number" id="tx-amount" min="1000" step="500" class="w-full bg-slate-900 border border-slate-700 text-slate-100 rounded-xl py-3 pl-10 pr-4 text-base font-bold focus:ring-2 focus:ring-sky-500 outline-none" placeholder="0" required oninput="updateFormUI()">
+                        </div>
+                    </div>
+
+                    <!-- Submit Button -->
+                    <button type="submit" id="btn-submit-tx" class="w-full bg-gradient-to-r from-orange-500 to-amber-600 hover:from-orange-400 hover:to-amber-500 text-white font-bold py-3.5 rounded-xl shadow-lg shadow-orange-500/20 transition-all active:scale-[0.98] flex items-center justify-center gap-2 text-sm">
+                        <i class="fa-solid fa-cloud-arrow-up"></i> Simpan Transaksi Ke Server
+                    </button>
+                </form>
+            </div>
+        </main>
+
+        <!-- TAB 3: RIWAYAT -->
+        <main id="tab-riwayat" class="tab-content p-4 pb-32">
+            <div class="flex justify-between items-center mb-4">
+                <div>
+                    <h2 class="text-lg font-bold text-slate-100">Riwayat Transaksi</h2>
+                    <p class="text-[11px] text-slate-400">Diurutkan berdasarkan waktu terbaru</p>
+                </div>
+                <button id="btn-reset-data" onclick="confirmClearHistory()" class="hidden text-[11px] text-rose-400 hover:text-rose-300 font-semibold px-2.5 py-1 bg-rose-500/10 border border-rose-500/20 rounded-lg transition">
+                    <i class="fa-solid fa-trash-can mr-1"></i> Reset Data
+                </button>
+            </div>
+            
+            <div id="history-list" class="space-y-2.5">
+                <!-- Dynamic logs -->
+            </div>
+        </main>
+
+        <!-- Bottom Navigation -->
+        <nav class="bg-slate-900/95 backdrop-blur-md border-t border-slate-800 fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-[480px] flex justify-around items-center py-2.5 z-30">
+            <button onclick="switchTab('dashboard')" id="nav-dashboard" class="nav-item active flex flex-col items-center w-1/3">
+                <i class="fa-solid fa-chart-pie text-lg mb-1"></i>
+                <span class="text-[10px] font-bold">Ringkasan</span>
+            </button>
+            <button onclick="switchTab('transaksi')" id="nav-transaksi" class="nav-item flex flex-col items-center w-1/3">
+                <i class="fa-solid fa-circle-plus text-xl mb-1 text-orange-400"></i>
+                <span class="text-[10px] font-bold">Catat Uang</span>
+            </button>
+            <button onclick="switchTab('riwayat')" id="nav-riwayat" class="nav-item flex flex-col items-center w-1/3">
+                <i class="fa-solid fa-clock-rotate-left text-lg mb-1"></i>
+                <span class="text-[10px] font-bold">Riwayat</span>
+            </button>
+        </nav>
+
+        <!-- Modal: Firebase Config & Family Code -->
+        <div id="config-modal" class="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 hidden flex justify-center items-center p-4">
+            <div class="bg-slate-800 border border-slate-700 rounded-2xl shadow-2xl p-5 w-full max-w-sm text-slate-100">
+                <div class="flex justify-between items-center mb-3">
+                    <h3 class="text-base font-bold flex items-center gap-2 text-sky-400">
+                        <i class="fa-solid fa-sliders"></i> Konfigurasi Online Sync
+                    </h3>
+                    <button onclick="closeConfigModal()" class="text-slate-400 hover:text-white"><i class="fa-solid fa-xmark text-lg"></i></button>
+                </div>
+                
+                <p class="text-xs text-slate-400 mb-4">
+                    Masukkan **Kode Keluarga** (App ID) yang sama di setiap HP anggota agar data otomatis tersambung secara real-time.
+                </p>
+
+                <div class="space-y-3 mb-4">
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-300 mb-1">Kode Sync Keluarga (App ID)</label>
+                        <input type="text" id="cfg-family-code" class="w-full bg-slate-900 border border-slate-700 rounded-xl p-2.5 text-xs text-sky-300 font-mono focus:border-sky-500 outline-none" placeholder="contoh: tabungan-keluarga-yamto">
+                    </div>
+
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-300 mb-1">Custom Firebase Config (Opsional JSON)</label>
+                        <textarea id="cfg-firebase-json" rows="4" class="w-full bg-slate-900 border border-slate-700 rounded-xl p-2.5 text-[11px] font-mono text-slate-300 focus:border-sky-500 outline-none" placeholder='{"apiKey": "...", "authDomain": "...", "projectId": "..."}'></textarea>
+                        <p class="text-[10px] text-slate-500 mt-1">Kosongkan jika menggunakan server default terintegrasi.</p>
+                    </div>
+
+                    <!-- Admin Change PIN Section (Hidden by default, shown to Admins) -->
+                    <div id="admin-pin-section" class="hidden pt-3 border-t border-slate-700 mt-3">
+                        <label class="block text-xs font-semibold text-orange-400 mb-1"><i class="fa-solid fa-key"></i> Ubah PIN Admin</label>
+                        <div class="flex gap-2">
+                            <input type="password" id="new-admin-pin" class="w-full bg-slate-900 border border-slate-700 rounded-xl p-2.5 text-xs text-slate-100 font-mono focus:border-orange-500 outline-none" placeholder="PIN Baru (contoh: 654321)">
+                            <button onclick="saveNewPin()" class="px-4 py-2 bg-orange-600 hover:bg-orange-500 rounded-xl text-xs font-bold text-white shadow-lg shadow-orange-600/20 transition">Ubah</button>
+                        </div>
+                        <p class="text-[10px] text-slate-500 mt-1">Tersinkronisasi otomatis ke semua perangkat anggota.</p>
+                    </div>
+
+                    <!-- Admin Member Manager Section (Hidden by default, shown to Admins) -->
+                    <div id="admin-member-section" class="hidden pt-3 border-t border-slate-700 mt-3">
+                        <label class="block text-xs font-semibold text-orange-400 mb-2"><i class="fa-solid fa-users-gear"></i> Manajemen Anggota</label>
+                        <div class="flex gap-2 mb-2">
+                            <input type="text" id="new-member-name" class="w-full bg-slate-900 border border-slate-700 rounded-xl p-2.5 text-xs text-slate-100 focus:border-orange-500 outline-none" placeholder="Nama Anggota Baru">
+                            <button onclick="addMember()" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 rounded-xl text-xs font-bold text-white shadow-lg shadow-emerald-600/20 transition"><i class="fa-solid fa-plus"></i></button>
+                        </div>
+                        <div id="manage-member-list" class="space-y-1.5 max-h-36 overflow-y-auto pr-1">
+                            <!-- Dynamic Member Manager List -->
+                        </div>
+                    </div>
+                </div>
+
+                <div class="flex gap-2">
+                    <button onclick="resetToDefaultConfig()" class="w-1/3 py-2.5 bg-slate-700 hover:bg-slate-600 rounded-xl text-xs font-bold text-slate-300 transition">
+                        Reset
+                    </button>
+                    <button onclick="saveCustomConfig()" class="w-2/3 py-2.5 bg-orange-500 hover:bg-orange-400 rounded-xl text-xs font-bold text-white shadow-lg shadow-orange-500/20 transition">
+                        Simpan & Hubungkan
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Modal: Admin Login -->
+        <div id="admin-modal" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 hidden flex justify-center items-center p-4">
+            <div class="bg-slate-800 border border-slate-700 rounded-2xl shadow-2xl p-6 w-full max-w-xs text-slate-100 text-center">
+                <div class="w-12 h-12 bg-orange-500/20 text-orange-400 rounded-full flex items-center justify-center mx-auto mb-4 border border-orange-500/30">
+                    <i class="fa-solid fa-shield-halved text-xl"></i>
+                </div>
+                <h3 class="text-base font-bold mb-1">Otorisasi Admin</h3>
+                <p class="text-xs text-slate-400 mb-5">Masukkan PIN untuk mengelola transaksi tabungan keluarga.</p>
+                
+                <input type="password" id="admin-pin-input" class="w-full bg-slate-900 border border-slate-700 rounded-xl py-3 px-4 text-center text-lg tracking-widest font-mono text-slate-100 focus:ring-2 focus:ring-orange-500 outline-none mb-4" placeholder="••••••" maxlength="6">
+                
+                <div class="flex gap-2 mt-2">
+                    <button onclick="closeAdminModal()" class="w-1/2 py-2.5 bg-slate-700 hover:bg-slate-600 rounded-xl text-xs font-bold text-slate-300 transition">
+                        Batal
+                    </button>
+                    <button onclick="verifyAdminPin()" class="w-1/2 py-2.5 bg-orange-600 hover:bg-orange-500 rounded-xl text-xs font-bold text-white shadow-lg shadow-orange-500/20 transition">
+                        Buka Kunci
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Custom Alert/Confirm Modal -->
+        <div id="modal" class="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 hidden flex justify-center items-center p-4">
+            <div class="bg-slate-800 border border-slate-700 rounded-2xl shadow-2xl p-5 w-full max-w-xs text-slate-100">
+                <h3 id="modal-title" class="text-base font-bold mb-2">Pemberitahuan</h3>
+                <p id="modal-desc" class="text-xs text-slate-300 mb-5 leading-relaxed">Isi pesan modal...</p>
+                <div id="modal-actions" class="flex justify-end gap-2">
+                    <button onclick="closeModal()" class="px-4 py-2 bg-sky-600 text-white rounded-xl text-xs font-bold">Tutup</button>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- Firebase SDK Imports -->
+    <script type="module">
+        import { initializeApp, getApps, deleteApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, collection, addDoc, deleteDoc, doc, onSnapshot, getDocs, setDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // Global Variables & State
+        let MEMBERS = [];
+        const INTEREST_RATE = 0.15; // 15% flat loan interest
+        let currentAdminPin = "123456"; // Default PIN, updated via Firebase
+        let isAdmin = sessionStorage.getItem('isAdmin') === 'true';
+        
+        let app = null;
+        let auth = null;
+        let db = null;
+        let unsubscribe = null;
+        let unsubscribeConfig = null;
+        let activeFbConfigStr = null; // Menambahkan pelacak konfigurasi aktif
+
+        let transactions = [];
+        let memberStats = {};
+        let currentFamilyCode = localStorage.getItem('family_sync_code') || (typeof __app_id !== 'undefined' ? __app_id : 'tabungan-keluarga-app');
+
+        // Setup DateTime Input Default
+        function setNowDateTimeInput() {
+            const now = new Date();
+            now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
+            document.getElementById('tx-datetime').value = now.toISOString().slice(0, 16);
+        }
+
+        // Initialize Firebase Connection
+        async function initFirebase() {
+            updateSyncBadge('connecting', 'Connecting...');
+            document.getElementById('display-family-code').textContent = currentFamilyCode;
+
+            let fbConfig = null;
+
+            // 1. Try saved user custom config
+            const customConfigStr = localStorage.getItem('custom_fb_config');
+            if (customConfigStr) {
+                try { fbConfig = JSON.parse(customConfigStr); } catch (e) {}
+            }
+
+            // 2. Fallback to system standard injected config
+            if (!fbConfig && typeof __firebase_config !== 'undefined') {
+                try { fbConfig = JSON.parse(__firebase_config); } catch (e) {}
+            }
+
+            if (!fbConfig) {
+                updateSyncBadge('offline', 'Mode Lokal (Tanpa Firebase)');
+                if (unsubscribe) { unsubscribe(); unsubscribe = null; }
+                if (unsubscribeConfig) { unsubscribeConfig(); unsubscribeConfig = null; }
+                loadLocalStorageFallback();
+                return;
+            }
+
+            const newConfigStr = JSON.stringify(fbConfig);
+
+            try {
+                if (getApps().length > 0) {
+                    if (activeFbConfigStr === newConfigStr) {
+                        // Konfigurasi server tidak berubah, cukup mulai ulang listener untuk kode keluarga baru
+                        updateSyncBadge('online', 'Realtime Sync Active');
+                        startFirestoreListener();
+                        return;
+                    } else {
+                        // Hentikan listener secara aman sebelum menghapus App
+                        if (unsubscribe) { unsubscribe(); unsubscribe = null; }
+                        if (unsubscribeConfig) { unsubscribeConfig(); unsubscribeConfig = null; }
+                        await deleteApp(getApps()[0]);
+                    }
+                }
+                
+                app = initializeApp(fbConfig);
+                activeFbConfigStr = newConfigStr;
+                auth = getAuth(app);
+                db = getFirestore(app);
+
+                // Auth step
+                let user = null;
+                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                    const res = await signInWithCustomToken(auth, __initial_auth_token);
+                    user = res.user;
+                } else {
+                    const res = await signInAnonymously(auth);
+                    user = res.user;
+                }
+
+                if (user) {
+                    updateSyncBadge('online', 'Realtime Sync Active');
+                    startFirestoreListener();
+                }
+            } catch (err) {
+                console.error("Firebase Error:", err);
+                updateSyncBadge('error', 'Sync Error');
+                loadLocalStorageFallback();
+            }
+        }
+
+        // Firestore Listener
+        function startFirestoreListener() {
+            if (unsubscribe) unsubscribe();
+            if (unsubscribeConfig) unsubscribeConfig();
+
+            // Strict MANDATORY RULE 1 Path
+            const colRef = collection(db, 'artifacts', currentFamilyCode, 'public', 'data', 'transactions');
+
+            unsubscribe = onSnapshot(colRef, 
+                (snapshot) => {
+                    transactions = [];
+                    snapshot.forEach(docSnap => {
+                        transactions.push({
+                            id: docSnap.id,
+                            ...docSnap.data()
+                        });
+                    });
+                    calculateStatsAndRender();
+                },
+                (error) => {
+                    console.error("Sync error:", error);
+                }
+            );
+
+            // Listen to Config for PIN and Members changes
+            const configRef = doc(db, 'artifacts', currentFamilyCode, 'public', 'data', 'settings', 'config');
+            unsubscribeConfig = onSnapshot(configRef, (docSnap) => {
+                if (docSnap.exists()) {
+                    const data = docSnap.data();
+                    if (data.adminPin) {
+                        currentAdminPin = data.adminPin;
+                    }
+                    if (data.members && Array.isArray(data.members)) {
+                        MEMBERS = data.members;
+                    }
+                }
+                updateDynamicUIs();
+                calculateStatsAndRender();
+            });
+        }
+
+        function loadLocalStorageFallback() {
+            transactions = JSON.parse(localStorage.getItem('tabungan_tx_' + currentFamilyCode)) || [];
+            currentAdminPin = localStorage.getItem('local_admin_pin_' + currentFamilyCode) || "123456";
+            const localMembers = localStorage.getItem('local_members_' + currentFamilyCode);
+            if (localMembers) {
+                try { MEMBERS = JSON.parse(localMembers); } catch(e) {}
+            }
+            updateDynamicUIs();
+            calculateStatsAndRender();
+        }
+
+        // Calculations Engine
+        function calculateStatsAndRender() {
+            // Reset per member
+            memberStats = {};
+            MEMBERS.forEach(m => memberStats[m] = { savings: 0, debt: 0 });
+
+            // Sort transactions chronologically
+            transactions.sort((a, b) => new Date(a.date) - new Date(b.date));
+
+            transactions.forEach(tx => {
+                const amount = parseFloat(tx.amount) || 0;
+                
+                // Lewati penghitungan dashboard perorangan jika anggota sudah dihapus
+                if (!memberStats[tx.member]) return;
+
+                if (tx.type === 'deposit') {
+                    memberStats[tx.member].savings += amount;
+                } else if (tx.type === 'loan') {
+                    // Principal + 15% interest
+                    memberStats[tx.member].debt += amount + (amount * INTEREST_RATE);
+                } else if (tx.type === 'repayment') {
+                    memberStats[tx.member].debt -= amount;
+                    if (memberStats[tx.member].debt < 0.01) memberStats[tx.member].debt = 0;
+                }
+            });
+
+            renderDashboard();
+            renderHistory();
+        }
+
+        function getGlobalTotals() {
+            let totalActiveCash = 0;
+            let totalInterestEarned = 0;
+            let totalOutstandingDebt = 0;
+
+            transactions.forEach(tx => {
+                const amount = parseFloat(tx.amount) || 0;
+
+                if (tx.type === 'deposit') {
+                    totalActiveCash += amount;
+                } 
+                else if (tx.type === 'loan') {
+                    totalActiveCash -= amount; // Principal leaves cash box
+                    totalOutstandingDebt += amount + (amount * INTEREST_RATE);
+                } 
+                else if (tx.type === 'repayment') {
+                    totalActiveCash += amount; // Cash returns
+                    totalOutstandingDebt -= amount;
+                    
+                    // Interest profit extraction: 15/115 of payment
+                    const interestPart = amount * (INTEREST_RATE / (1 + INTEREST_RATE));
+                    totalInterestEarned += interestPart;
+                }
+            });
+
+            return { totalActiveCash, totalInterestEarned, totalOutstandingDebt };
+        }
+
+        // Rendering Functions
+        function formatRupiah(num) {
+            return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(num || 0);
+        }
+
+        function formatDateDisplay(isoStr) {
+            if(!isoStr) return '-';
+            const d = new Date(isoStr);
+            const pad = (n) => n.toString().padStart(2, '0');
+            return `${pad(d.getDate())}/${pad(d.getMonth()+1)}/${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+        }
+
+        function renderDashboard() {
+            const totals = getGlobalTotals();
+
+            document.getElementById('total-kas').textContent = formatRupiah(totals.totalActiveCash);
+            document.getElementById('total-bunga').textContent = formatRupiah(totals.totalInterestEarned);
+            document.getElementById('total-hutang').textContent = formatRupiah(totals.totalOutstandingDebt);
+
+            const listEl = document.getElementById('member-list');
+            listEl.innerHTML = '';
+
+            MEMBERS.forEach(m => {
+                const s = memberStats[m];
+                const card = document.createElement('div');
+                card.className = "glass-card p-3.5 rounded-2xl flex justify-between items-center";
+                card.innerHTML = `
+                    <div class="flex items-center gap-3">
+                        <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-orange-500/20 to-amber-500/20 border border-orange-400/30 text-orange-400 flex items-center justify-center font-bold text-xs">
+                            ${m.substring(0, 2).toUpperCase()}
+                        </div>
+                        <div>
+                            <h4 class="font-bold text-slate-100 text-sm">${m}</h4>
+                            <p class="text-[11px] text-slate-400">
+                                Tabungan: <span class="font-semibold text-emerald-400">${formatRupiah(s.savings)}</span>
+                            </p>
+                        </div>
+                    </div>
+                    <div class="text-right">
+                        <p class="text-[10px] text-slate-400">Sisa Hutang</p>
+                        <p class="text-xs font-bold ${s.debt > 0 ? 'text-amber-400' : 'text-slate-500'}">
+                            ${formatRupiah(s.debt)}
+                        </p>
+                    </div>
+                `;
+                listEl.appendChild(card);
+            });
+        }
+
+        function renderHistory() {
+            const listEl = document.getElementById('history-list');
+            listEl.innerHTML = '';
+
+            if (transactions.length === 0) {
+                listEl.innerHTML = `<div class="text-center py-10 text-slate-500 text-xs">Belum ada catatan transaksi.</div>`;
+                return;
+            }
+
+            // Display newest first
+            const displayList = [...transactions].sort((a, b) => new Date(b.date) - new Date(a.date));
+
+            displayList.forEach(tx => {
+                let badgeClass, icon, typeTitle;
+                if (tx.type === 'deposit') {
+                    badgeClass = 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30';
+                    icon = 'fa-arrow-down-long';
+                    typeTitle = 'Menabung';
+                } else if (tx.type === 'loan') {
+                    badgeClass = 'bg-amber-500/20 text-amber-300 border-amber-500/30';
+                    icon = 'fa-hand-holding-dollar';
+                    typeTitle = 'Pinjaman';
+                } else {
+                    badgeClass = 'bg-sky-500/20 text-sky-300 border-sky-500/30';
+                    icon = 'fa-arrow-up-right-dots';
+                    typeTitle = 'Bayar Hutang';
+                }
+
+                const item = document.createElement('div');
+                item.className = "bg-slate-800/60 p-3 rounded-xl border border-slate-700/60 flex items-center justify-between gap-3";
+                item.innerHTML = `
+                    <div class="flex items-center gap-3 min-w-0">
+                        <div class="w-9 h-9 rounded-lg ${badgeClass} border flex items-center justify-center text-xs shrink-0">
+                            <i class="fa-solid ${icon}"></i>
+                        </div>
+                        <div class="truncate">
+                            <div class="flex items-center gap-2">
+                                <span class="font-bold text-slate-200 text-xs truncate">${tx.member}</span>
+                                <span class="text-[9px] px-1.5 py-0.2 rounded border ${badgeClass}">${typeTitle}</span>
+                            </div>
+                            <p class="text-[10px] text-slate-400 mt-0.5 flex items-center gap-1">
+                                <i class="fa-regular fa-clock text-[9px]"></i> ${formatDateDisplay(tx.date)}
+                            </p>
+                        </div>
+                    </div>
+                    <div class="text-right shrink-0">
+                        <p class="font-bold text-xs text-slate-100">${formatRupiah(tx.amount)}</p>
+                        ${isAdmin ? `
+                        <button onclick="confirmDeleteTx('${tx.id}')" class="text-[10px] text-rose-400 hover:text-rose-300 mt-1 inline-block">
+                            <i class="fa-regular fa-trash-can"></i> Hapus
+                        </button>
+                        ` : ''}
+                    </div>
+                `;
+                listEl.appendChild(item);
+            });
+        }
+
+        // Form Logic
+        window.updateFormUI = function() {
+            const member = document.getElementById('tx-member').value;
+            const type = document.querySelector('input[name="tx-type"]:checked').value;
+            const amount = parseFloat(document.getElementById('tx-amount').value) || 0;
+            const infoBox = document.getElementById('tx-info');
+
+            infoBox.classList.add('hidden');
+            if (!member) return;
+
+            if (type === 'loan') {
+                infoBox.classList.remove('hidden');
+                infoBox.className = "mb-4 text-xs p-3 rounded-xl border bg-amber-500/10 border-amber-500/30 text-amber-300";
+                const interest = amount * INTEREST_RATE;
+                const totalDebt = amount + interest;
+                infoBox.innerHTML = `
+                    <strong>Rincian Pinjaman Bunga 15%:</strong><br>
+                    • Pokok: ${formatRupiah(amount)}<br>
+                    • Bunga (15%): ${formatRupiah(interest)}<br>
+                    • Total Tagihan Wajib Bayar: <strong class="text-amber-200">${formatRupiah(totalDebt)}</strong>
+                `;
+            } else if (type === 'repayment') {
+                const currentDebt = memberStats[member] ? memberStats[member].debt : 0;
+                infoBox.classList.remove('hidden');
+                infoBox.className = "mb-4 text-xs p-3 rounded-xl border bg-sky-500/10 border-sky-500/30 text-sky-300";
+                infoBox.innerHTML = `
+                    Sisa hutang berjalan <strong>${member}</strong>:<br>
+                    <span class="text-sm font-bold text-sky-200">${formatRupiah(currentDebt)}</span>
+                `;
+            }
+        };
+
+        window.handleFormSubmit = async function(e) {
+            e.preventDefault();
+            
+            const member = document.getElementById('tx-member').value;
+            const type = document.querySelector('input[name="tx-type"]:checked').value;
+            const datetimeInput = document.getElementById('tx-datetime').value;
+            const amount = parseFloat(document.getElementById('tx-amount').value);
+
+            if (!member) return showModal("Perhatian", "Silakan pilih Kepala Keluarga terlebih dahulu.");
+            if (!datetimeInput) return showModal("Perhatian", "Pilih tanggal dan jam presisi.");
+            if (isNaN(amount) || amount <= 0) return showModal("Perhatian", "Masukkan nominal uang yang valid.");
+
+            const isoDate = new Date(datetimeInput).toISOString();
+
+            // Validation rules
+            if (type === 'repayment') {
+                const currentDebt = memberStats[member] ? memberStats[member].debt : 0;
+                if (currentDebt <= 0) {
+                    return showModal("Gagal", `${member} saat ini tidak memiliki sisa hutang.`);
+                }
+                if (amount > currentDebt + 0.5) {
+                    return showModal("Gagal", `Nominal pembayaran (${formatRupiah(amount)}) melebihi total hutang (${formatRupiah(currentDebt)}).`);
+                }
+            }
+
+            if (type === 'loan') {
+                const totals = getGlobalTotals();
+                if (amount > totals.totalActiveCash) {
+                    return showModal("Kas Tidak Cukup", `Total kas fisik yang tersedia hanya ${formatRupiah(totals.totalActiveCash)}.`);
+                }
+            }
+
+            const btn = document.getElementById('btn-submit-tx');
+            btn.disabled = true;
+            btn.innerHTML = `<i class="fa-solid fa-spinner animate-spin"></i> Menyimpan...`;
+
+            const txData = {
+                member: member,
+                type: type,
+                amount: amount,
+                date: isoDate,
+                createdAt: new Date().toISOString()
+            };
+
+            try {
+                if (db && auth && auth.currentUser) {
+                    // Strict MANDATORY RULE 1 Path
+                    const colRef = collection(db, 'artifacts', currentFamilyCode, 'public', 'data', 'transactions');
+                    await addDoc(colRef, txData);
+                } else {
+                    // Offline fallback
+                    txData.id = 'loc_' + Date.now();
+                    transactions.push(txData);
+                    localStorage.setItem('tabungan_tx_' + currentFamilyCode, JSON.stringify(transactions));
+                    calculateStatsAndRender();
+                }
+
+                showToast("Transaksi berhasil dicatat online!");
+                document.getElementById('tx-form').reset();
+                setNowDateTimeInput();
+                updateFormUI();
+                switchTab('dashboard');
+            } catch (err) {
+                console.error("Save Error:", err);
+                showModal("Gagal Menyimpan", err.message);
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = `<i class="fa-solid fa-cloud-arrow-up"></i> Simpan Transaksi Ke Server`;
+            }
+        };
+
+        window.confirmDeleteTx = function(txId) {
+            showModal(
+                "Konfirmasi Hapus", 
+                "Apakah Anda yakin ingin menghapus catatan transaksi ini?",
+                `<button onclick="closeModal()" class="px-3.5 py-1.5 bg-slate-700 text-slate-200 rounded-xl text-xs font-semibold">Batal</button>
+                 <button onclick="executeDeleteTx('${txId}')" class="px-3.5 py-1.5 bg-rose-600 text-white rounded-xl text-xs font-semibold">Hapus</button>`
+            );
+        };
+
+        window.executeDeleteTx = async function(txId) {
+            closeModal();
+            try {
+                if (db && auth && auth.currentUser && !txId.startsWith('loc_')) {
+                    const docRef = doc(db, 'artifacts', currentFamilyCode, 'public', 'data', 'transactions', txId);
+                    await deleteDoc(docRef);
+                } else {
+                    transactions = transactions.filter(t => t.id !== txId);
+                    localStorage.setItem('tabungan_tx_' + currentFamilyCode, JSON.stringify(transactions));
+                    calculateStatsAndRender();
+                }
+                showToast("Transaksi berhasil dihapus");
+            } catch(e) {
+                showModal("Error", e.message);
+            }
+        };
+
+        window.confirmClearHistory = function() {
+            showModal(
+                "Reset Semua Data",
+                "Perhatian! Tindakan ini akan mengosongkan seluruh data tabungan keluarga. Lanjutkan?",
+                `<button onclick="closeModal()" class="px-3.5 py-1.5 bg-slate-700 text-slate-200 rounded-xl text-xs font-semibold">Batal</button>
+                 <button onclick="executeClearAll()" class="px-3.5 py-1.5 bg-rose-600 text-white rounded-xl text-xs font-semibold">Reset Semua</button>`
+            );
+        };
+
+        window.executeClearAll = async function() {
+            closeModal();
+            try {
+                if (db && auth && auth.currentUser) {
+                    const colRef = collection(db, 'artifacts', currentFamilyCode, 'public', 'data', 'transactions');
+                    const snapshot = await getDocs(colRef);
+                    const promises = snapshot.docs.map(d => deleteDoc(d.ref));
+                    await Promise.all(promises);
+                } else {
+                    transactions = [];
+                    localStorage.removeItem('tabungan_tx_' + currentFamilyCode);
+                    calculateStatsAndRender();
+                }
+                showToast("Data tabungan berhasil di-reset");
+            } catch(e) {
+                showModal("Error", e.message);
+            }
+        };
+
+        // Firebase Config Modal Controls
+        window.openConfigModal = function() {
+            document.getElementById('cfg-family-code').value = currentFamilyCode;
+            document.getElementById('cfg-firebase-json').value = localStorage.getItem('custom_fb_config') || '';
+            document.getElementById('config-modal').classList.remove('hidden');
+        };
+
+        window.closeConfigModal = function() {
+            document.getElementById('config-modal').classList.add('hidden');
+        };
+
+        window.saveCustomConfig = function() {
+            const code = document.getElementById('cfg-family-code').value.trim();
+            const jsonStr = document.getElementById('cfg-firebase-json').value.trim();
+
+            if (code) {
+                currentFamilyCode = code;
+                localStorage.setItem('family_sync_code', code);
+            }
+
+            if (jsonStr) {
+                try {
+                    JSON.parse(jsonStr);
+                    localStorage.setItem('custom_fb_config', jsonStr);
+                } catch(e) {
+                    return showModal("Format Salah", "Custom Firebase Config harus berupa format JSON yang valid.");
+                }
+            } else {
+                localStorage.removeItem('custom_fb_config');
+            }
+
+            closeConfigModal();
+            showToast("Mengkonfigurasi ulang...");
+            initFirebase();
+        };
+
+        window.resetToDefaultConfig = function() {
+            localStorage.removeItem('custom_fb_config');
+            localStorage.removeItem('family_sync_code');
+            currentFamilyCode = typeof __app_id !== 'undefined' ? __app_id : 'tabungan-keluarga-app';
+            closeConfigModal();
+            showToast("Kembali ke konfigurasi awal");
+            initFirebase();
+        };
+
+        window.saveNewPin = async function() {
+            const newPin = document.getElementById('new-admin-pin').value.trim();
+            if (!newPin) {
+                return showModal("Perhatian", "PIN baru tidak boleh kosong.");
+            }
+            if (newPin.length < 4) {
+                return showModal("Perhatian", "PIN minimal 4 karakter.");
+            }
+
+            try {
+                if (db && auth && auth.currentUser) {
+                    const configRef = doc(db, 'artifacts', currentFamilyCode, 'public', 'data', 'settings', 'config');
+                    await setDoc(configRef, { adminPin: newPin }, { merge: true });
+                } else {
+                    // Offline fallback
+                    currentAdminPin = newPin;
+                    localStorage.setItem('local_admin_pin_' + currentFamilyCode, newPin);
+                }
+                
+                document.getElementById('new-admin-pin').value = '';
+                showToast("PIN Admin berhasil diubah!");
+            } catch(e) {
+                showModal("Error", "Gagal mengubah PIN: " + e.message);
+            }
+        };
+
+        window.copyFamilyCode = function() {
+            const dummy = document.createElement('textarea');
+            dummy.value = currentFamilyCode;
+            document.body.appendChild(dummy);
+            dummy.select();
+            document.execCommand('copy');
+            document.body.removeChild(dummy);
+            showToast("Kode Sync disalin ke clipboard!");
+        };
+
+        // Status Helper
+        function updateSyncBadge(type, text) {
+            const badge = document.getElementById('sync-status-badge');
+            if (type === 'online') {
+                badge.className = "px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 flex items-center gap-1";
+                badge.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span> ${text}`;
+            } else if (type === 'offline') {
+                badge.className = "px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-700 text-slate-300 border border-slate-600 flex items-center gap-1";
+                badge.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-slate-400"></span> ${text}`;
+            } else if (type === 'connecting') {
+                badge.className = "px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30 flex items-center gap-1";
+                badge.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse"></span> ${text}`;
+            } else {
+                badge.className = "px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-500/20 text-rose-300 border border-rose-500/30 flex items-center gap-1";
+                badge.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-rose-400"></span> ${text}`;
+            }
+        }
+
+        // Navigation Tabs
+        window.switchTab = function(tabId) {
+            document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+            document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
+            
+            document.getElementById('tab-' + tabId).classList.add('active');
+            document.getElementById('nav-' + tabId).classList.add('active');
+            
+            if (tabId === 'transaksi') updateFormUI();
+        };
+
+        window.showToast = function(msg, isError = false) {
+            const toast = document.getElementById('toast');
+            document.getElementById('toast-msg').textContent = msg;
+            
+            if (isError) {
+                toast.className = "fixed top-16 left-1/2 px-4 py-2.5 rounded-xl shadow-2xl text-white text-xs z-50 whitespace-nowrap bg-rose-600 font-semibold flex items-center gap-2 border border-rose-400/30 show";
+            } else {
+                toast.className = "fixed top-16 left-1/2 px-4 py-2.5 rounded-xl shadow-2xl text-white text-xs z-50 whitespace-nowrap bg-emerald-600 font-semibold flex items-center gap-2 border border-emerald-400/30 show";
+            }
+            
+            setTimeout(() => toast.classList.remove('show'), 3000);
+        };
+
+        window.showModal = function(title, desc, customActions = null) {
+            document.getElementById('modal-title').textContent = title;
+            document.getElementById('modal-desc').textContent = desc;
+            
+            const actionsEl = document.getElementById('modal-actions');
+            if (customActions) {
+                actionsEl.innerHTML = customActions;
+            } else {
+                actionsEl.innerHTML = `<button onclick="closeModal()" class="px-4 py-2 bg-sky-600 text-white rounded-xl text-xs font-bold shadow-md hover:bg-sky-500">Mengerti</button>`;
+            }
+            
+            document.getElementById('modal').classList.remove('hidden');
+        };
+
+        window.closeModal = function() {
+            document.getElementById('modal').classList.add('hidden');
+        };
+
+        // --- Admin Role Logic ---
+        window.toggleAdminModal = function() {
+            if (isAdmin) {
+                showModal(
+                    "Logout Admin", 
+                    "Anda akan keluar dari mode Admin. Lanjutkan?",
+                    `<button onclick="closeModal()" class="px-3.5 py-1.5 bg-slate-700 text-slate-200 rounded-xl text-xs font-semibold">Batal</button>
+                     <button onclick="logoutAdmin()" class="px-3.5 py-1.5 bg-rose-600 text-white rounded-xl text-xs font-semibold">Keluar Mode Admin</button>`
+                );
+            } else {
+                document.getElementById('admin-pin-input').value = '';
+                document.getElementById('admin-modal').classList.remove('hidden');
+                setTimeout(() => document.getElementById('admin-pin-input').focus(), 100);
+            }
+        };
+
+        window.closeAdminModal = function() {
+            document.getElementById('admin-modal').classList.add('hidden');
+        };
+
+        window.verifyAdminPin = function() {
+            const pin = document.getElementById('admin-pin-input').value;
+            if (pin === currentAdminPin) {
+                isAdmin = true;
+                sessionStorage.setItem('isAdmin', 'true');
+                closeAdminModal();
+                updateAdminUI();
+                showToast("Berhasil masuk sebagai Admin!");
+            } else {
+                showModal("Akses Ditolak", "PIN yang Anda masukkan salah.");
+                document.getElementById('admin-pin-input').value = '';
+            }
+        };
+
+        window.logoutAdmin = function() {
+            isAdmin = false;
+            sessionStorage.removeItem('isAdmin');
+            closeModal();
+            updateAdminUI();
+            showToast("Berhasil keluar dari mode Admin");
+        };
+
+        function updateAdminUI() {
+            const btnLock = document.getElementById('btn-admin-lock');
+            const formContainer = document.getElementById('tx-form-container');
+            const lockedMsg = document.getElementById('admin-locked-msg');
+            const btnReset = document.getElementById('btn-reset-data');
+            const pinSection = document.getElementById('admin-pin-section');
+            const memberSection = document.getElementById('admin-member-section');
+
+            if (isAdmin) {
+                btnLock.innerHTML = '<i class="fa-solid fa-unlock-keyhole text-sm"></i>';
+                btnLock.classList.replace('text-slate-400', 'text-emerald-400');
+                btnLock.title = "Logout Admin";
+                
+                formContainer.classList.remove('hidden');
+                lockedMsg.classList.add('hidden');
+                btnReset.classList.remove('hidden');
+                if (pinSection) pinSection.classList.remove('hidden');
+                if (memberSection) memberSection.classList.remove('hidden');
+            } else {
+                btnLock.innerHTML = '<i class="fa-solid fa-lock text-sm"></i>';
+                btnLock.classList.replace('text-emerald-400', 'text-slate-400');
+                btnLock.title = "Login Admin";
+                
+                formContainer.classList.add('hidden');
+                lockedMsg.classList.remove('hidden');
+                btnReset.classList.add('hidden');
+                if (pinSection) pinSection.classList.add('hidden');
+                if (memberSection) memberSection.classList.add('hidden');
+            }
+            
+            if (transactions.length > 0) renderHistory();
+        }
+
+        // --- Dynamic Members Logic ---
+        window.updateDynamicUIs = function() {
+            // Update Header
+            document.getElementById('header-member-text').textContent = `${MEMBERS.length} Anggota`;
+            document.getElementById('dashboard-members-title').textContent = `Daftar Nama Anggota`;
+
+            // Update Transaction Select (Keep value if still valid)
+            const select = document.getElementById('tx-member');
+            const currentVal = select.value;
+            select.innerHTML = '<option value="" disabled selected>Pilih Anggota Keluarga...</option>';
+            MEMBERS.forEach(m => {
+                const opt = document.createElement('option');
+                opt.value = m;
+                opt.textContent = m;
+                select.appendChild(opt);
+            });
+            if (MEMBERS.includes(currentVal)) select.value = currentVal;
+
+            // Update Member Management List
+            const list = document.getElementById('manage-member-list');
+            if (list) {
+                list.innerHTML = '';
+                MEMBERS.forEach(m => {
+                    list.innerHTML += `
+                        <div class="flex justify-between items-center bg-slate-900/80 p-2 rounded-xl border border-slate-700/80">
+                            <span class="text-xs text-slate-200 font-medium ml-2">${m}</span>
+                            <button onclick="confirmRemoveMember('${m}')" class="text-rose-400 hover:text-white hover:bg-rose-500/20 px-2.5 py-1 rounded-lg transition" title="Hapus Anggota">
+                                <i class="fa-solid fa-trash-can text-[11px]"></i>
+                            </button>
+                        </div>
+                    `;
+                });
+            }
+        };
+
+        window.addMember = async function() {
+            const input = document.getElementById('new-member-name');
+            const name = input.value.trim();
+            if (!name) return showModal("Perhatian", "Nama anggota tidak boleh kosong.");
+            
+            if (MEMBERS.some(m => m.toLowerCase() === name.toLowerCase())) {
+                return showModal("Perhatian", "Anggota ini sudah ada dalam daftar.");
+            }
+            
+            const updatedMembers = [...MEMBERS, name];
+            await saveMembersToFirebase(updatedMembers);
+            input.value = '';
+            showToast(`Anggota '${name}' ditambahkan!`);
+        };
+
+        window.confirmRemoveMember = function(name) {
+            showModal(
+                "Hapus Anggota", 
+                `Yakin ingin menghapus <b>${name}</b> dari daftar anggota? (Transaksi lamanya akan tetap ada di riwayat, tetapi dia tidak akan muncul di dashboard lagi)`,
+                `<button onclick="closeModal()" class="px-3.5 py-1.5 bg-slate-700 text-slate-200 rounded-xl text-xs font-semibold">Batal</button>
+                 <button onclick="executeRemoveMember('${name}')" class="px-3.5 py-1.5 bg-rose-600 text-white rounded-xl text-xs font-semibold">Hapus</button>`
+            );
+        };
+
+        window.executeRemoveMember = async function(name) {
+            closeModal();
+            const updatedMembers = MEMBERS.filter(m => m !== name);
+            await saveMembersToFirebase(updatedMembers);
+            showToast(`Anggota '${name}' berhasil dihapus!`);
+        };
+
+        async function saveMembersToFirebase(updatedMembers) {
+            try {
+                if (db && auth && auth.currentUser) {
+                    const configRef = doc(db, 'artifacts', currentFamilyCode, 'public', 'data', 'settings', 'config');
+                    await setDoc(configRef, { members: updatedMembers }, { merge: true });
+                } else {
+                    // Offline fallback
+                    MEMBERS = updatedMembers;
+                    localStorage.setItem('local_members_' + currentFamilyCode, JSON.stringify(MEMBERS));
+                    updateDynamicUIs();
+                    calculateStatsAndRender();
+                }
+            } catch(e) {
+                showModal("Error", "Gagal menyimpan data anggota: " + e.message);
+            }
+        }
+
+        // App Initialization
+        window.onload = function() {
+            updateDynamicUIs();
+            setNowDateTimeInput();
+            updateAdminUI();
+            initFirebase();
+        };
+    </script>
+</body>
+</html>
